@@ -16,9 +16,21 @@ interface ResultPanelProps {
   results: AnalysisResult[];
   stats: AggregatedStats | null;
   isAnalyzing: boolean;
+  onFavoriteChange?: () => void;
+  favoriteRevision?: number;
+  isFavoriteFn?: (id: string) => boolean;
+  toggleFavoriteFn?: (id: string) => boolean;
 }
 
-const ResultPanel: React.FC<ResultPanelProps> = ({ results, stats, isAnalyzing }) => {
+const ResultPanel: React.FC<ResultPanelProps> = ({
+  results,
+  stats,
+  isAnalyzing,
+  onFavoriteChange,
+  favoriteRevision,
+  isFavoriteFn,
+  toggleFavoriteFn
+}) => {
   const [activeTab, setActiveTab] = useState('sentiment');
 
   const tabItems = [
@@ -76,7 +88,14 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ results, stats, isAnalyzing }
 
         <div className="tab-content">
           {activeTab === 'sentiment' && (
-            <SentimentTab results={results} isLoading={isAnalyzing} />
+            <SentimentTab
+              results={results}
+              isLoading={isAnalyzing}
+              onFavoriteChange={onFavoriteChange}
+              favoriteRevision={favoriteRevision}
+              isFavoriteFn={isFavoriteFn}
+              toggleFavoriteFn={toggleFavoriteFn}
+            />
           )}
           {activeTab === 'keywords' && (
             <KeywordCloudTab results={results} isLoading={isAnalyzing} />

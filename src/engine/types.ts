@@ -5,7 +5,12 @@ export interface NewsItem {
   source?: string;
 }
 
-export type SentimentLabel = 'positive' | 'neutral' | 'negative';
+export type SentimentLabel =
+  | 'strongly_negative'
+  | 'negative'
+  | 'neutral'
+  | 'positive'
+  | 'strongly_positive';
 
 export interface SentimentResult {
   label: SentimentLabel;
@@ -13,6 +18,11 @@ export interface SentimentResult {
   confidence: number;
   positiveWords: string[];
   negativeWords: string[];
+  detail: {
+    positiveScore: number;
+    negativeScore: number;
+    degree: number;
+  };
 }
 
 export type KeywordCategory = 'company' | 'industry' | 'indicator' | 'other';
@@ -34,6 +44,8 @@ export interface AnalysisResult {
   sentiment: SentimentResult;
   keywords: KeywordItem[];
   summary: SummaryResult;
+  favorite: boolean;
+  analyzedAt: number;
 }
 
 export interface EngineStatus {
@@ -41,20 +53,41 @@ export interface EngineStatus {
   isLoading: boolean;
   loadProgress: number;
   loadError?: string;
-  engineType: 'rule' | 'transformer';
-}
-
-export interface IAnalysisEngine {
-  status: EngineStatus;
-  load(progressCallback?: (progress: number) => void): Promise<void>;
-  analyze(news: NewsItem[]): Promise<AnalysisResult[]>;
+  engineType: 'rule';
 }
 
 export interface AggregatedStats {
   total: number;
-  positive: number;
-  neutral: number;
+  strongly_negative: number;
   negative: number;
+  neutral: number;
+  positive: number;
+  strongly_positive: number;
   averageScore: number;
   topKeywords: KeywordItem[];
+}
+
+export interface HistoryRecord {
+  id: string;
+  createdAt: number;
+  name: string;
+  newsCount: number;
+  results: AnalysisResult[];
+  stats: AggregatedStats;
+}
+
+export interface CustomDictEntry {
+  word: string;
+  type: 'positive' | 'negative' | 'negation' | 'degree';
+  weight: number;
+  category?: string;
+  createdAt: number;
+}
+
+export interface BackupData {
+  version: string;
+  exportedAt: number;
+  history: HistoryRecord[];
+  dictionary: CustomDictEntry[];
+  favorites: string[];
 }

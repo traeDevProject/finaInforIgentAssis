@@ -64,3 +64,8 @@ export const negativeAdverbs: string[] = [
 export const strongNegativeAdverbs: string[] = [
   '不再', '不会', '不能', '不可', '没有', '从未', '绝不', '决不'
 ];
+
+export const turningWords: string[] = [
+  '但是', '但', '然而', '不过', '可', '可是', '却', '反倒', '反而', '尽管如此',
+  '虽然', '虽', '即便', '即使', '纵然', '纵使'
+];

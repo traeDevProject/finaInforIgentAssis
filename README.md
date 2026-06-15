@@ -1,57 +1,174 @@
-# React + TypeScript + Vite
+# 财经资讯智能助手
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+纯前端的财经资讯智能分析工具，**所有分析均在浏览器本地运行**，无需后端服务器，主打隐私保护和离线可用。
 
-Currently, two official plugins are available:
+## ✨ 核心功能
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+### 1. 五档情感细分分析
+基于规则+词典引擎，将财经资讯划分为五个情感等级：
 
-## Expanding the ESLint configuration
+| 等级 | 阈值 | 说明 |
+|------|------|------|
+| 强烈利好 | score ≥ 0.6 | 确定性极强的正面信号 |
+| 利好 | 0.2 ≤ score < 0.6 | 较明确的正面信号 |
+| 中性 | -0.2 < score < 0.2 | 信号不明或多空平衡 |
+| 利空 | -0.6 < score ≤ -0.2 | 较明确的负面信号 |
+| 强烈利空 | score ≤ -0.6 | 确定性极强的负面信号 |
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+分析输出包含：
+- 五档情感标签 + 数值得分
+- 正面/负面强度值、程度系数
+- 命中的正面/负面词汇高亮
+- 置信度评估
 
-```js
-export default tseslint.config({
-  extends: [
-    // Remove ...tseslint.configs.recommended and replace with this
-    ...tseslint.configs.recommendedTypeChecked,
-    // Alternatively, use this for stricter rules
-    ...tseslint.configs.strictTypeChecked,
-    // Optionally, add this for stylistic rules
-    ...tseslint.configs.stylisticTypeChecked,
-  ],
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
+**否定句式支持**：通过否定词作用域机制（最大距离 8 个字符），能正确识别如「业绩不再增长」等否定表达，不会误判为利好。
+
+### 2. 关键词 / 实体提取 + 词云
+内置财经实体词典（公司、行业、指标三大类），采用 TextRank 算法抽取关键词，并以 ECharts 词云可视化展示。
+
+### 3. TextRank 智能摘要
+抽取式自动摘要算法，自动筛选新闻中的关键句子，快速生成内容摘要。
+
+### 4. 整体情绪概览仪表盘
+- ECharts 环形饼图：五档情绪分布
+- 情绪指数（0~100 分，0=极度看空，100=极度看多）
+- 看多合计 / 看空合计 / 中性统计
+
+### 5. 文档批量上传
+支持文件格式：
+- `.txt` / `.md`：纯文本/Markdown，按空行切分多条新闻
+- `.csv`：跳过首行表头，自动合并各列内容
+
+支持多文件同时选择，一次性导入分析。
+
+### 6. 历史记录管理
+- 每次分析自动保存，最多保留 **50 条**
+- 支持记录重命名、单条删除、一键清空
+- 支持一键载入历史分析结果回到主界面
+
+### 7. 自定义情感词典
+可添加四类自定义词汇：
+
+| 类型 | 作用 | 权重建议 |
+|------|------|----------|
+| 正面词 | 贡献正向情感得分 | 0.5 ~ 3.0（默认 1.0） |
+| 负面词 | 贡献负向情感得分 | -3.0 ~ -0.5（默认 -1.0） |
+| 否定词 | 反转后续情感词极性 | 0.5 ~ 0.99（默认 0.7，越高反转越强） |
+| 程度词 | 放大/缩小后续情感词强度 | 0.3 ~ 2.5（默认 1.2，<1 为减弱，>1 为增强） |
+
+支持：
+- 批量导入导出词典（JSON 格式）
+- 词汇分类标签（可选）
+- 一键清空用户词典
+
+### 8. 数据筛选 & 收藏
+- **关键词搜索**：按标题/内容模糊匹配
+- **分段筛选**：全部 / 收藏 / 五档类型（带实时计数）
+- **单条收藏**：星标标记重要新闻，独立筛选视图
+
+### 9. 本地备份 & 恢复
+一键导出完整数据备份（JSON 格式），包含：
+- 历史分析记录
+- 自定义情感词典
+- 收藏夹数据
+
+支持从备份文件完整恢复，方便跨设备迁移。
+
+### 10. 分片异步推理
+大批量新闻（默认每批 10 条）采用 `Promise.all` 并行分批推理，批间通过 `setTimeout(10ms)` 让出主线程，避免界面卡顿。分析过程显示底部实时进度条。
+
+## 🚀 快速启动
+
+### 环境要求
+- Node.js ≥ 18.0
+- 现代浏览器（Chrome/Edge/Firefox/Safari 最新版）
+
+### 安装依赖
+```bash
+npm install
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default tseslint.config({
-  extends: [
-    // other configs...
-    // Enable lint rules for React
-    reactX.configs['recommended-typescript'],
-    // Enable lint rules for React DOM
-    reactDom.configs.recommended,
-  ],
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
+### 开发模式（热更新）
+```bash
+npm run dev
 ```
+默认启动地址：http://localhost:5173
+
+### 生产构建
+```bash
+npm run build
+```
+构建产物位于 `dist/` 目录，可直接部署到任意静态文件服务器，或本地用浏览器打开 `dist/index.html` 即可离线使用。
+
+### 类型检查
+```bash
+npm run check
+```
+
+## 📁 项目结构
+```
+src/
+├── components/
+│   ├── InputPanel/          # 左侧输入面板（文本/文件上传/工具菜单）
+│   ├── ResultPanel/         # 右侧结果面板容器
+│   ├── SentimentTab/        # 情感分析 Tab（筛选+收藏+列表）
+│   ├── KeywordCloudTab/     # 关键词词云 Tab
+│   ├── SummaryTab/          # 智能摘要 Tab
+│   ├── SentimentDashboard/  # 情绪仪表盘（五档饼图+统计）
+│   └── Modals/
+│       ├── HistoryModal.tsx              # 历史记录弹窗
+│       └── CustomDictionaryModal.tsx     # 自定义词典弹窗
+├── engine/
+│   ├── types.ts              # 核心类型定义（五档/备份等接口）
+│   ├── index.ts              # 分析引擎入口（分片推理方法）
+│   └── sentiment/
+│       └── ruleBased.ts      # 规则+词典情感引擎（含否定作用域）
+├── hooks/
+│   └── useAnalysisEngine.ts  # 分析状态管理 Hook
+├── store/
+│   ├── appStore.ts           # 历史/收藏/备份 localStorage 封装
+│   └── dictionaryStore.ts    # 自定义词典 localStorage 封装
+├── data/
+│   └── sentimentDict.ts      # 内置情感词典（正/负/否定/程度/转折）
+└── pages/
+    ├── Home.tsx              # 主页
+    └── Home.css              # 样式
+```
+
+## 🛠️ 技术栈
+
+| 类别 | 技术 | 版本 |
+|------|------|------|
+| 构建工具 | Vite | ^5.4 |
+| 框架 | React | ^18.3 |
+| 语言 | TypeScript | ^5.5 |
+| UI 组件库 | Ant Design | ^6.0 |
+| 图表 | ECharts | ^6.0 |
+| 图标 | @ant-design/icons | ^6.0 |
+
+## 🔒 隐私与离线说明
+
+- **零数据上传**：所有分析、存储、计算均在浏览器 `localStorage` 和 JS 引擎内完成，无任何网络请求
+- **纯静态页面**：构建产物为纯 HTML/CSS/JS，无需服务端，可直接双击打开或部署至任意 CDN
+- **localStorage 持久化**：自定义词典、历史记录、收藏夹存储于浏览器本地
+- **备份机制**：建议定期导出 JSON 备份文件，避免浏览器缓存清理导致数据丢失
+
+## 📤 备份文件格式
+
+导出的 JSON 备份结构如下：
+```json
+{
+  "version": 1,
+  "exportedAt": 1735689600000,
+  "history": [ /* 历史记录数组 */ ],
+  "customDictionary": [ /* 自定义词典数组 */ ],
+  "favorites": [ /* 收藏的新闻ID列表 */ ]
+}
+```
+
+## ⚠️ 注意事项
+
+1. 本工具为规则+词典驱动的**辅助分析工具**，输出结果仅供参考，不构成任何投资建议
+2. 浏览器 `localStorage` 容量通常为 5-10MB，超大量历史记录可能需要手动清理或导出备份
+3. CSV 文件解析采用简单的列合并，复杂格式建议先用表格工具预处理
+4. 最大否定词作用域距离为 8 个字符，超出范围则不生效

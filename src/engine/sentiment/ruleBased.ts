@@ -2,112 +2,123 @@ import { SentimentResult, SentimentLabel } from '../types';
 import {
   positiveWords,
   negativeWords,
-  degreeAdverbs,
   negativeAdverbs,
-  strongNegativeAdverbs
+  strongNegativeAdverbs,
+  degreeAdverbs,
+  turningWords
 } from '../../data/sentimentDict';
+import { getCustomDict } from '../../store/dictionaryStore';
 
-const stopPunctuations = new Set([
-  '，', '。', '！', '？', '；', '：', '、',
-  ',', '.', '!', '?', ';', ':',
-  ' ', '\t', '\n', '\r',
-  '但是', '不过', '然而', '可是', '但', '却',
-  '虽然', '尽管', '即使', '就算',
-  '而且', '并且', '同时', '另外', '此外',
-  '因为', '所以', '因此', '于是'
-]);
+const PUNCTUATION_REGEX = /[。！？；.!?;,\s，、]+/;
+const MAX_NEGATION_DISTANCE = 8;
 
-export function analyzeSentimentRuleBased(text: string): SentimentResult {
-  let totalPositiveScore = 0;
-  let totalNegativeScore = 0;
-  const foundPositive: string[] = [];
-  const foundNegative: string[] = [];
-
-  const sentences = splitSentences(text);
-
-  for (const sentence of sentences) {
-    const result = analyzeSentence(sentence);
-    totalPositiveScore += result.positiveScore;
-    totalNegativeScore += result.negativeScore;
-    foundPositive.push(...result.positiveWords);
-    foundNegative.push(...result.negativeWords);
-  }
-
-  const totalScore = totalPositiveScore - totalNegativeScore;
-  const maxScore = Math.max(totalPositiveScore, totalNegativeScore, 1);
-  const normalizedScore = totalScore / maxScore;
-
-  let label: SentimentLabel;
-  if (normalizedScore > 0.15) {
-    label = 'positive';
-  } else if (normalizedScore < -0.15) {
-    label = 'negative';
-  } else {
-    label = 'neutral';
-  }
-
-  const confidence = Math.min(Math.abs(normalizedScore) * 0.6 + 0.4, 0.95);
-
-  return {
-    label,
-    score: Math.max(-1, Math.min(1, normalizedScore)),
-    confidence,
-    positiveWords: [...new Set(foundPositive)].slice(0, 10),
-    negativeWords: [...new Set(foundNegative)].slice(0, 10)
-  };
+function scoreToLabel(score: number): SentimentLabel {
+  if (score >= 0.6) return 'strongly_positive';
+  if (score >= 0.2) return 'positive';
+  if (score <= -0.6) return 'strongly_negative';
+  if (score <= -0.2) return 'negative';
+  return 'neutral';
 }
 
-function splitSentences(text: string): string[] {
-  const sentences: string[] = [];
-  let current = '';
+function buildWordSet() {
+  const customDict = getCustomDict();
+  const positiveSet = new Map<string, number>();
+  const negativeSet = new Map<string, number>();
+  const negationSet = new Map<string, number>();
+  const degreeSet = new Map<string, number>();
+  const turningSet = new Set<string>();
 
-  for (let i = 0; i < text.length; i++) {
-    const char = text[i];
-    current += char;
+  for (const word of positiveWords) {
+    positiveSet.set(word, 1.0);
+  }
+  for (const word of negativeWords) {
+    negativeSet.set(word, -1.0);
+  }
+  for (const word of negativeAdverbs) {
+    negationSet.set(word, 0.7);
+  }
+  for (const word of strongNegativeAdverbs) {
+    negationSet.set(word, 0.9);
+  }
+  for (const item of degreeAdverbs) {
+    degreeSet.set(item.word, item.weight);
+  }
+  for (const word of turningWords) {
+    turningSet.add(word);
+  }
 
-    if (char === '。' || char === '！' || char === '？' || char === '；' || char === ';') {
-      const nextChar = text[i + 1];
-      if (nextChar === '”' || nextChar === '"' || nextChar === '）' || nextChar === ')') {
-        current += nextChar;
-        i++;
-      }
-      const trimmed = current.trim();
-      if (trimmed.length > 5) {
-        sentences.push(trimmed);
-      }
-      current = '';
+  for (const entry of customDict) {
+    if (entry.type === 'positive') {
+      positiveSet.set(entry.word, entry.weight || 1.0);
+    } else if (entry.type === 'negative') {
+      negativeSet.set(entry.word, entry.weight || -1.0);
+    } else if (entry.type === 'negation') {
+      negationSet.set(entry.word, entry.weight || 0.7);
+    } else if (entry.type === 'degree') {
+      degreeSet.set(entry.word, entry.weight || 1.0);
     }
   }
 
-  if (current.trim().length > 5) {
-    sentences.push(current.trim());
-  }
-
-  return sentences;
+  return { positiveSet, negativeSet, negationSet, degreeSet, turningSet };
 }
 
-function analyzeSentence(sentence: string): {
-  positiveScore: number;
-  negativeScore: number;
-  positiveWords: string[];
-  negativeWords: string[];
-} {
-  let positiveScore = 0;
-  let negativeScore = 0;
-  const positiveWordsFound: string[] = [];
-  const negativeWordsFound: string[] = [];
+function matchLongestWord(text: string, start: number, wordMap: Map<string, number>): { word: string; weight: number; length: number } | null {
+  let longestMatch: { word: string; weight: number; length: number } | null = null;
+
+  for (const [word, weight] of wordMap.entries()) {
+    if (text.startsWith(word, start)) {
+      if (!longestMatch || word.length > longestMatch.length) {
+        longestMatch = { word, weight, length: word.length };
+      }
+    }
+  }
+
+  return longestMatch;
+}
+
+function matchAnyWord(text: string, start: number, wordSet: Set<string>): string | null {
+  for (const word of wordSet) {
+    if (text.startsWith(word, start)) {
+      return word;
+    }
+  }
+  return null;
+}
+
+export function analyzeSentimentRuleBased(text: string): SentimentResult {
+  if (!text || !text.trim()) {
+    return {
+      label: 'neutral',
+      score: 0,
+      confidence: 0.5,
+      positiveWords: [],
+      negativeWords: [],
+      detail: { positiveScore: 0, negativeScore: 0, degree: 0 }
+    };
+  }
+
+  const { positiveSet, negativeSet, negationSet, degreeSet, turningSet } = buildWordSet();
+
+  const cleanText = text.replace(/\s+/g, '');
+  const allPositiveWords: string[] = [];
+  const allNegativeWords: string[] = [];
 
   let negationScope = false;
   let negationStrength = 0.7;
   let degreeModifier = 1;
   let distanceFromNegation = 0;
-  const maxNegationDistance = 6;
+
+  let totalPositive = 0;
+  let totalNegative = 0;
+  let totalDegree = 1;
+  let degreeCount = 0;
+  let hitCount = 0;
 
   let i = 0;
-  while (i < sentence.length) {
-    const char = sentence[i];
+  while (i < cleanText.length) {
+    const char = cleanText[i];
 
-    if (stopPunctuations.has(char)) {
+    if (PUNCTUATION_REGEX.test(char)) {
       negationScope = false;
       degreeModifier = 1;
       distanceFromNegation = 0;
@@ -115,99 +126,118 @@ function analyzeSentence(sentence: string): {
       continue;
     }
 
-    let matched = false;
-
-    for (let len = 8; len >= 2; len--) {
-      if (i + len > sentence.length) continue;
-      const word = sentence.substring(i, i + len);
-
-      if (positiveWords.includes(word)) {
-        let weight = degreeModifier;
-
-        if (negationScope && distanceFromNegation <= maxNegationDistance) {
-          weight = weight * negationStrength * -1;
-        }
-
-        if (weight > 0) {
-          positiveScore += weight;
-          positiveWordsFound.push(word);
-        } else {
-          negativeScore += Math.abs(weight);
-          negativeWordsFound.push(`不${word}`);
-        }
-
-        negationScope = false;
-        degreeModifier = 1;
-        distanceFromNegation = 0;
-        i += len;
-        matched = true;
-        break;
-      }
-
-      if (negativeWords.includes(word)) {
-        let weight = -degreeModifier;
-
-        if (negationScope && distanceFromNegation <= maxNegationDistance) {
-          weight = weight * negationStrength * -1;
-        }
-
-        if (weight < 0) {
-          negativeScore += Math.abs(weight);
-          negativeWordsFound.push(word);
-        } else {
-          positiveScore += weight;
-          positiveWordsFound.push(`不${word}`);
-        }
-
-        negationScope = false;
-        degreeModifier = 1;
-        distanceFromNegation = 0;
-        i += len;
-        matched = true;
-        break;
-      }
+    if (matchAnyWord(cleanText, i, turningSet)) {
+      negationScope = false;
+      degreeModifier = 1;
+      distanceFromNegation = 0;
+      i += 2;
+      continue;
     }
 
-    if (matched) continue;
-
-    for (const adv of degreeAdverbs) {
-      if (sentence.substring(i, i + adv.word.length) === adv.word) {
-        degreeModifier = adv.weight;
-        i += adv.word.length;
-        matched = true;
-        break;
-      }
+    const negationMatch = matchLongestWord(cleanText, i, negationSet);
+    if (negationMatch) {
+      negationScope = true;
+      negationStrength = negationMatch.weight;
+      distanceFromNegation = 0;
+      i += negationMatch.length;
+      continue;
     }
 
-    if (matched) continue;
-
-    for (const neg of negativeAdverbs) {
-      if (sentence.substring(i, i + neg.length) === neg) {
-        negationScope = true;
-        distanceFromNegation = 0;
-        negationStrength = strongNegativeAdverbs.includes(neg) ? 0.9 : 0.7;
-        i += neg.length;
-        matched = true;
-        break;
-      }
+    const degreeMatch = matchLongestWord(cleanText, i, degreeSet);
+    if (degreeMatch) {
+      degreeModifier *= degreeMatch.weight;
+      i += degreeMatch.length;
+      continue;
     }
 
-    if (matched) continue;
+    const positiveMatch = matchLongestWord(cleanText, i, positiveSet);
+    if (positiveMatch) {
+      hitCount++;
+      let weight = positiveMatch.weight * degreeModifier;
 
-    if (negationScope) {
-      distanceFromNegation++;
-      if (distanceFromNegation > maxNegationDistance) {
-        negationScope = false;
+      if (negationScope && distanceFromNegation <= MAX_NEGATION_DISTANCE) {
+        weight = weight * negationStrength * -1;
       }
+
+      if (weight > 0) {
+        totalPositive += weight;
+        allPositiveWords.push(positiveMatch.word);
+      } else {
+        totalNegative += Math.abs(weight);
+        allNegativeWords.push(`不${positiveMatch.word}`);
+      }
+
+      totalDegree *= degreeModifier;
+      degreeCount++;
+      degreeModifier = 1;
+      i += positiveMatch.length;
+      if (negationScope) distanceFromNegation += positiveMatch.length;
+      continue;
+    }
+
+    const negativeMatch = matchLongestWord(cleanText, i, negativeSet);
+    if (negativeMatch) {
+      hitCount++;
+      let weight = negativeMatch.weight * degreeModifier;
+
+      if (negationScope && distanceFromNegation <= MAX_NEGATION_DISTANCE) {
+        weight = Math.abs(weight) * negationStrength;
+        allPositiveWords.push(`不${negativeMatch.word}`);
+      } else {
+        allNegativeWords.push(negativeMatch.word);
+      }
+
+      if (weight > 0) {
+        totalPositive += weight;
+      } else {
+        totalNegative += Math.abs(weight);
+      }
+
+      totalDegree *= degreeModifier;
+      degreeCount++;
+      degreeModifier = 1;
+      i += negativeMatch.length;
+      if (negationScope) distanceFromNegation += negativeMatch.length;
+      continue;
     }
 
     i++;
+    if (negationScope) distanceFromNegation++;
+    if (distanceFromNegation > MAX_NEGATION_DISTANCE) {
+      negationScope = false;
+    }
   }
 
+  const textLength = cleanText.length;
+  const hitDensity = textLength > 0 ? hitCount / Math.max(1, Math.floor(textLength / 100)) : 0;
+
+  let rawScore = 0;
+  let confidence = 0.5;
+
+  if (totalPositive === 0 && totalNegative === 0) {
+    rawScore = 0;
+    confidence = 0.5;
+  } else {
+    rawScore = (totalPositive - totalNegative) / Math.max(totalPositive, totalNegative);
+    const totalStrength = totalPositive + totalNegative;
+    const avgDegree = degreeCount > 0 ? Math.pow(totalDegree, 1 / degreeCount) : 1;
+    confidence = 0.5 + Math.min(hitDensity, 3) * 0.1 + Math.min(avgDegree - 1, 2) * 0.05;
+    confidence = Math.min(confidence, 0.98);
+  }
+
+  const score = Math.max(-1, Math.min(1, rawScore));
+  const label = scoreToLabel(score);
+
   return {
-    positiveScore,
-    negativeScore,
-    positiveWords: positiveWordsFound,
-    negativeWords: negativeWordsFound
+    label,
+    score,
+    confidence,
+    positiveWords: Array.from(new Set(allPositiveWords)),
+    negativeWords: Array.from(new Set(allNegativeWords)),
+    detail: {
+      positiveScore: Number(totalPositive.toFixed(3)),
+      negativeScore: Number(totalNegative.toFixed(3)),
+      degree: degreeCount > 0 ? Number(Math.pow(totalDegree, 1 / degreeCount).toFixed(2)) : 1
+    }
   };
 }

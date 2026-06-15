@@ -1,63 +1,38 @@
-import { useState, useCallback, useRef } from 'react';
-import { engine, aggregateStats, EngineMode } from '../engine';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { engine, aggregateStats } from '../engine';
 import {
   NewsItem,
   AnalysisResult,
   AggregatedStats,
-  EngineStatus
+  EngineStatus,
+  HistoryRecord
 } from '../engine/types';
+import {
+  addHistory,
+  getHistory,
+  getHistoryById,
+  removeHistory,
+  renameHistory,
+  clearHistory,
+  exportBackup,
+  importBackup,
+  downloadBackup
+} from '../store/appStore';
 
 export function useAnalysisEngine() {
   const [status, setStatus] = useState<EngineStatus>(engine.status);
-  const [engineMode, setEngineMode] = useState<EngineMode>('rule');
   const [results, setResults] = useState<AnalysisResult[]>([]);
   const [stats, setStats] = useState<AggregatedStats | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analyzeProgress, setAnalyzeProgress] = useState({ current: 0, total: 0 });
-  const [isLoadingModel, setIsLoadingModel] = useState(false);
-  const [modelLoadProgress, setModelLoadProgress] = useState(0);
-  const [modelLoadError, setModelLoadError] = useState<string | null>(null);
+  const [historyList, setHistoryList] = useState<HistoryRecord[]>([]);
   const abortRef = useRef(false);
 
-  const loadTransformerModel = useCallback(async (): Promise<boolean> => {
-    if (isLoadingModel) return false;
+  useEffect(() => {
+    setHistoryList(getHistory());
+  }, []);
 
-    setIsLoadingModel(true);
-    setModelLoadProgress(0);
-    setModelLoadError(null);
-
-    try {
-      const success = await engine.loadTransformer((progress) => {
-        setModelLoadProgress(progress);
-      });
-
-      if (success) {
-        setEngineMode('transformer');
-        setStatus(engine.status);
-      } else {
-        setModelLoadError('模型加载失败，将继续使用规则引擎');
-      }
-
-      return success;
-    } catch (error) {
-      setModelLoadError(error instanceof Error ? error.message : '模型加载失败');
-      return false;
-    } finally {
-      setIsLoadingModel(false);
-    }
-  }, [isLoadingModel]);
-
-  const switchEngineMode = useCallback((mode: EngineMode) => {
-    if (mode === 'transformer' && !engine.isTransformerReady()) {
-      loadTransformerModel();
-    } else {
-      engine.setMode(mode);
-      setEngineMode(mode);
-      setStatus(engine.status);
-    }
-  }, [loadTransformerModel]);
-
-  const analyze = useCallback(async (newsList: NewsItem[]) => {
+  const analyze = useCallback(async (newsList: NewsItem[], historyName?: string) => {
     if (newsList.length === 0) {
       setResults([]);
       setStats(null);
@@ -69,8 +44,9 @@ export function useAnalysisEngine() {
     setAnalyzeProgress({ current: 0, total: newsList.length });
 
     try {
-      const analysisResults = await engine.analyzeWithProgress(
+      const analysisResults = await engine.analyzeChunked(
         newsList,
+        10,
         (current, total) => {
           if (!abortRef.current) {
             setAnalyzeProgress({ current, total });
@@ -80,7 +56,10 @@ export function useAnalysisEngine() {
 
       if (!abortRef.current) {
         setResults(analysisResults);
-        setStats(aggregateStats(analysisResults));
+        const aggregated = aggregateStats(analysisResults);
+        setStats(aggregated);
+        addHistory(analysisResults, aggregated, historyName);
+        setHistoryList(getHistory());
       }
     } catch (error) {
       console.error('Analysis failed:', error);
@@ -99,19 +78,70 @@ export function useAnalysisEngine() {
     setAnalyzeProgress({ current: 0, total: 0 });
   }, []);
 
+  const loadHistory = useCallback((id: string) => {
+    const record = getHistoryById(id);
+    if (record) {
+      setResults(record.results);
+      setStats(record.stats);
+    }
+  }, []);
+
+  const deleteHistory = useCallback((id: string) => {
+    removeHistory(id);
+    setHistoryList(getHistory());
+  }, []);
+
+  const doRenameHistory = useCallback((id: string, name: string) => {
+    renameHistory(id, name);
+    setHistoryList(getHistory());
+  }, []);
+
+  const doClearHistory = useCallback(() => {
+    clearHistory();
+    setHistoryList([]);
+  }, []);
+
+  const doExportBackup = useCallback(() => {
+    downloadBackup();
+  }, []);
+
+  const doImportBackup = useCallback(async (file: File) => {
+    return new Promise<void>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = JSON.parse(e.target?.result as string);
+          importBackup(data);
+          setHistoryList(getHistory());
+          resolve();
+        } catch (err) {
+          reject(err);
+        }
+      };
+      reader.onerror = () => reject(new Error('读取文件失败'));
+      reader.readAsText(file, 'utf-8');
+    });
+  }, []);
+
+  const refreshResults = useCallback(() => {
+    setResults(prev => [...prev]);
+  }, []);
+
   return {
     status,
-    engineMode,
     results,
     stats,
     isAnalyzing,
     analyzeProgress,
-    isLoadingModel,
-    modelLoadProgress,
-    modelLoadError,
-    loadTransformerModel,
-    switchEngineMode,
+    historyList,
     analyze,
-    clearResults
+    clearResults,
+    loadHistory,
+    deleteHistory,
+    renameHistory: doRenameHistory,
+    clearAllHistory: doClearHistory,
+    exportBackup: doExportBackup,
+    importBackup: doImportBackup,
+    refreshResults
   };
 }

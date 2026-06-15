@@ -1,12 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import {
   ConfigProvider,
   theme,
   App as AntdApp,
   Progress,
-  Modal,
-  Tag,
-  Tooltip,
   Button,
   message
 } from 'antd';
@@ -14,17 +11,15 @@ import zhCN from 'antd/locale/zh_CN';
 import {
   ThunderboltOutlined,
   SafetyOutlined,
-  GlobalOutlined,
-  RobotOutlined,
-  FileTextOutlined,
-  InfoCircleOutlined,
-  SettingOutlined
+  GlobalOutlined
 } from '@ant-design/icons';
 import InputPanel from '@/components/InputPanel/InputPanel';
 import ResultPanel from '@/components/ResultPanel/ResultPanel';
+import CustomDictionaryModal from '@/components/Modals/CustomDictionaryModal';
+import HistoryModal from '@/components/Modals/HistoryModal';
 import { useAnalysisEngine } from '@/hooks/useAnalysisEngine';
 import { NewsItem } from '@/engine/types';
-import { EngineMode } from '@/engine';
+import { toggleFavorite, isFavorite } from '@/store/appStore';
 import './Home.css';
 
 export default function Home() {
@@ -34,44 +29,46 @@ export default function Home() {
     isAnalyzing,
     analyzeProgress,
     analyze,
-    status,
-    engineMode,
-    isLoadingModel,
-    modelLoadProgress,
-    modelLoadError,
-    switchEngineMode
+    historyList,
+    loadHistory,
+    deleteHistory,
+    renameHistory,
+    clearAllHistory,
+    exportBackup,
+    importBackup,
+    refreshResults
   } = useAnalysisEngine();
 
-  const [showLoadModal, setShowLoadModal] = useState(false);
-  const [newsList, setNewsList] = useState<NewsItem[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [dictOpen, setDictOpen] = useState(false);
+  const [favoriteRevision, setFavoriteRevision] = useState(0);
+  const backupInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (modelLoadError) {
-      message.warning(modelLoadError);
-    }
-  }, [modelLoadError]);
+  const handleAnalyze = useCallback(async (news: NewsItem[], name?: string) => {
+    await analyze(news, name);
+  }, [analyze]);
 
-  const handleAnalyze = async (news: NewsItem[]) => {
-    setNewsList(news);
-    if (!status.isLoaded && engineMode === 'transformer') {
-      setShowLoadModal(true);
-    }
-    await analyze(news);
-    setShowLoadModal(false);
-  };
+  const handleFavoriteChange = useCallback(() => {
+    setFavoriteRevision(prev => prev + 1);
+    refreshResults();
+  }, [refreshResults]);
 
-  const handleModeSwitch = (mode: EngineMode) => {
-    if (mode === 'transformer' && !isLoadingModel) {
-      setShowLoadModal(true);
-    }
-    switchEngineMode(mode);
-  };
+  const handleImportBackupClick = useCallback(() => {
+    backupInputRef.current?.click();
+  }, []);
 
-  const handleCloseLoadModal = () => {
-    if (!isLoadingModel) {
-      setShowLoadModal(false);
+  const handleBackupFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    try {
+      await importBackup(file);
+      message.success('数据恢复成功');
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '导入失败');
     }
-  };
+  }, [importBackup]);
 
   return (
     <ConfigProvider
@@ -100,6 +97,19 @@ export default function Home() {
           Input: {
             colorBgContainer: 'rgba(15, 23, 42, 0.6)',
             colorBorder: 'rgba(148, 163, 184, 0.2)'
+          },
+          Modal: {
+            colorBgElevated: 'rgba(15, 23, 42, 0.95)',
+            colorIcon: '#94a3b8',
+            colorIconHover: '#fff'
+          },
+          Table: {
+            colorBgContainer: 'rgba(15, 23, 42, 0.6)',
+            colorBgElevated: 'rgba(30, 41, 59, 0.8)',
+            colorBorderSecondary: 'rgba(148, 163, 184, 0.1)',
+            headerColor: '#e2e8f0',
+            headerBg: 'rgba(30, 41, 59, 0.9)',
+            rowHoverBg: 'rgba(51, 65, 85, 0.4)'
           }
         }
       }}
@@ -125,38 +135,6 @@ export default function Home() {
               </div>
 
               <div className="header-right">
-                <div className="engine-selector">
-                  <Tooltip title="规则引擎：快速、轻量、零延迟">
-                    <Tag.CheckableTag
-                      checked={engineMode === 'rule'}
-                      onChange={() => handleModeSwitch('rule')}
-                      className={`engine-tag ${engineMode === 'rule' ? 'active' : ''}`}
-                    >
-                      <FileTextOutlined /> 规则引擎
-                    </Tag.CheckableTag>
-                  </Tooltip>
-                  <Tooltip
-                    title={
-                      isLoadingModel
-                        ? '正在加载模型...'
-                        : engineMode === 'transformer'
-                        ? 'Transformer 模型已加载'
-                        : 'Transformer 模型：更准确，首次需下载约 80MB'
-                    }
-                  >
-                    <Tag.CheckableTag
-                      checked={engineMode === 'transformer'}
-                      onChange={() => handleModeSwitch('transformer')}
-                      className={`engine-tag ${engineMode === 'transformer' ? 'active transformer' : ''}`}
-                    >
-                      <RobotOutlined spin={isLoadingModel} />
-                      {' '}
-                      AI 模型
-                      {isLoadingModel && ` (${modelLoadProgress}%)`}
-                    </Tag.CheckableTag>
-                  </Tooltip>
-                </div>
-
                 <div className="header-badges">
                   <span className="badge">
                     <SafetyOutlined /> 数据不出浏览器
@@ -176,6 +154,10 @@ export default function Home() {
                   onAnalyze={handleAnalyze}
                   isAnalyzing={isAnalyzing}
                   newsCount={results.length}
+                  onOpenHistory={() => setHistoryOpen(true)}
+                  onOpenDictionary={() => setDictOpen(true)}
+                  onExportBackup={exportBackup}
+                  onImportBackup={handleImportBackupClick}
                 />
               </div>
               <div className="right-panel">
@@ -183,81 +165,18 @@ export default function Home() {
                   results={results}
                   stats={stats}
                   isAnalyzing={isAnalyzing}
+                  onFavoriteChange={handleFavoriteChange}
+                  favoriteRevision={favoriteRevision}
+                  isFavoriteFn={isFavorite}
+                  toggleFavoriteFn={toggleFavorite}
                 />
               </div>
             </div>
           </main>
 
           <footer className="app-footer">
-            <p>所有 AI 分析均在浏览器本地完成，您的数据不会上传到任何服务器</p>
+            <p>所有分析均在浏览器本地完成，您的数据不会上传到任何服务器</p>
           </footer>
-
-          <Modal
-            title={
-              <span>
-                <RobotOutlined /> 加载 AI 模型
-              </span>
-            }
-            open={showLoadModal && (isLoadingModel || modelLoadError ? true : false)}
-            footer={
-              !isLoadingModel
-                ? [
-                    <Button key="close" onClick={handleCloseLoadModal}>
-                      关闭
-                    </Button>
-                  ]
-                : null
-            }
-            closable={!isLoadingModel}
-            mask={{ closable: false }}
-            width={440}
-            centered
-            className="load-modal"
-            onCancel={handleCloseLoadModal}
-          >
-            <div className="load-modal-content">
-              {isLoadingModel ? (
-                <>
-                  <div className="load-icon">
-                    <RobotOutlined spin />
-                  </div>
-                  <p className="load-text">正在下载 AI 模型，请稍候...</p>
-                  <p className="load-subtext">
-                    首次使用需要下载约 80MB 模型文件，之后会缓存到浏览器
-                  </p>
-                  <Progress
-                    percent={modelLoadProgress}
-                    status="active"
-                    strokeColor={{
-                      '0%': '#3b82f6',
-                      '100%': '#8b5cf6'
-                    }}
-                  />
-                  <div className="load-tips">
-                    <p>
-                      <InfoCircleOutlined /> 小提示：
-                    </p>
-                    <ul>
-                      <li>模型加载完成后分析速度会更快</li>
-                      <li>模型缓存在浏览器中，下次使用无需重新下载</li>
-                      <li>如果加载失败，可继续使用规则引擎</li>
-                    </ul>
-                  </div>
-                </>
-              ) : modelLoadError ? (
-                <div className="load-error">
-                  <div className="error-icon">
-                    <InfoCircleOutlined />
-                  </div>
-                  <p className="error-title">模型加载失败</p>
-                  <p className="error-message">{modelLoadError}</p>
-                  <p className="error-hint">
-                    您仍可以使用规则引擎进行分析，速度更快但准确度稍低。
-                  </p>
-                </div>
-              ) : null}
-            </div>
-          </Modal>
 
           {isAnalyzing && analyzeProgress.total > 0 && (
             <div className="analyze-progress-bar">
@@ -278,6 +197,32 @@ export default function Home() {
             </div>
           )}
         </div>
+
+        <input
+          ref={backupInputRef}
+          type="file"
+          accept=".json"
+          style={{ display: 'none' }}
+          onChange={handleBackupFileChange}
+        />
+
+        <HistoryModal
+          open={historyOpen}
+          onClose={() => setHistoryOpen(false)}
+          historyList={historyList}
+          onLoad={(id) => {
+            loadHistory(id);
+            setHistoryOpen(false);
+          }}
+          onDelete={deleteHistory}
+          onRename={renameHistory}
+          onClearAll={clearAllHistory}
+        />
+
+        <CustomDictionaryModal
+          open={dictOpen}
+          onClose={() => setDictOpen(false)}
+        />
       </AntdApp>
     </ConfigProvider>
   );

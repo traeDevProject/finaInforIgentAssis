@@ -1,0 +1,66 @@
+.input-tabs {
+  margin-bottom: 16px;
+}
+
+.input-tabs :global(.ant-tabs-nav) {
+  margin-bottom: 16px;
+}
+
+.text-tab-content {
+  padding: 0;
+}
+
+.url-tab-content {
+  padding: 0;
+}
+
+.url-input-section {
+  margin-bottom: 16px;
+}
+
+.url-list-section {
+  margin-top: 16px;
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid rgba(148, 163, 184, 0.1);
+  border-radius: 8px;
+  padding: 8px;
+  background: rgba(15, 23, 42, 0.4);
+}
+
+.url-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 8px 8px;
+  font-size: 13px;
+  color: #94a3b8;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+  margin-bottom: 4px;
+}
+
+.url-list-item {
+  padding: 10px 8px !important;
+  border-radius: 6px;
+  transition: background 0.2s;
+}
+
+.url-list-item:hover {
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.url-item-title {
+  font-size: 13px;
+  color: #e2e8f0;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+  max-width: 280px;
+}
+
+.url-item-desc {
+  font-size: 12px;
+  color: #64748b;
+}

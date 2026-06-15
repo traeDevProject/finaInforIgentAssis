@@ -1,15 +1,29 @@
 import React, { useState } from 'react';
-import { Button, Input, Space, message, Tag, Divider } from 'antd';
+import { Button, Input, Space, message, Tag, Divider, Tabs, List, Alert } from 'antd';
 import {
   FileTextOutlined,
   ThunderboltOutlined,
   ClearOutlined,
   AppstoreOutlined,
-  FileAddOutlined
+  FileAddOutlined,
+  LinkOutlined,
+  LoadingOutlined,
+  DeleteOutlined,
+  CheckOutlined,
+  CloseOutlined
 } from '@ant-design/icons';
 import { NewsItem } from '../../engine/types';
+import { fetchNewsFromUrl, isValidUrl } from '../../utils/urlFetcher';
+import './InputPanel.css';
 
 const { TextArea } = Input;
+
+interface UrlFetchItem {
+  url: string;
+  status: 'pending' | 'loading' | 'success' | 'error';
+  result?: NewsItem;
+  error?: string;
+}
 
 interface InputPanelProps {
   onAnalyze: (newsList: NewsItem[]) => void;
@@ -46,8 +60,12 @@ const sampleNews: NewsItem[] = [
 ];
 
 const InputPanel: React.FC<InputPanelProps> = ({ onAnalyze, isAnalyzing, newsCount }) => {
+  const [activeTab, setActiveTab] = useState<'text' | 'url'>('text');
   const [inputText, setInputText] = useState('');
   const [parseMode, setParseMode] = useState<'single' | 'batch'>('batch');
+  const [urlInput, setUrlInput] = useState('');
+  const [urlItems, setUrlItems] = useState<UrlFetchItem[]>([]);
+  const [isFetching, setIsFetching] = useState(false);
 
   const parseNewsItems = (text: string): NewsItem[] => {
     if (!text.trim()) return [];
@@ -107,7 +125,7 @@ const InputPanel: React.FC<InputPanelProps> = ({ onAnalyze, isAnalyzing, newsCou
     }));
   };
 
-  const handleAnalyze = () => {
+  const handleAnalyzeText = () => {
     const newsList = parseNewsItems(inputText);
     if (newsList.length === 0) {
       message.warning('请输入有效的新闻文本');
@@ -116,50 +134,153 @@ const InputPanel: React.FC<InputPanelProps> = ({ onAnalyze, isAnalyzing, newsCou
     onAnalyze(newsList);
   };
 
+  const handleAnalyzeUrl = () => {
+    const successItems = urlItems.filter(item => item.status === 'success' && item.result);
+    if (successItems.length === 0) {
+      message.warning('请先添加并成功获取至少一条新闻链接');
+      return;
+    }
+    const newsList = successItems.map(item => item.result!);
+    onAnalyze(newsList);
+  };
+
+  const handleAddUrl = async () => {
+    const urls = urlInput.split(/[\n,，\s]+/).filter(u => u.trim());
+
+    if (urls.length === 0) {
+      message.warning('请输入新闻链接');
+      return;
+    }
+
+    const validUrls = urls.filter(u => {
+      if (!isValidUrl(u)) {
+        message.warning(`无效的网址: ${u}`);
+        return false;
+      }
+      return true;
+    });
+
+    if (validUrls.length === 0) return;
+
+    const newItems: UrlFetchItem[] = validUrls.map(url => ({
+      url,
+      status: 'pending'
+    }));
+
+    setUrlItems(prev => [...prev, ...newItems]);
+    setUrlInput('');
+    setIsFetching(true);
+
+    for (let i = 0; i < newItems.length; i++) {
+      const item = newItems[i];
+      setUrlItems(prev =>
+        prev.map(it => it.url === item.url ? { ...it, status: 'loading' } : it)
+      );
+
+      try {
+        const result = await fetchNewsFromUrl(item.url);
+
+        if (result.success && result.content) {
+          const newsItem: NewsItem = {
+            id: `url-${Date.now()}-${i}`,
+            title: result.title || item.url,
+            content: result.content,
+            source: result.source
+          };
+
+          setUrlItems(prev =>
+            prev.map(it =>
+              it.url === item.url
+                ? { ...it, status: 'success', result: newsItem }
+                : it
+            )
+          );
+        } else {
+          setUrlItems(prev =>
+            prev.map(it =>
+              it.url === item.url
+                ? { ...it, status: 'error', error: result.error }
+                : it
+            )
+          );
+        }
+      } catch (error) {
+        setUrlItems(prev =>
+          prev.map(it =>
+            it.url === item.url
+              ? { ...it, status: 'error', error: '获取失败' }
+              : it
+          )
+        );
+      }
+    }
+
+    setIsFetching(false);
+    message.success('链接处理完成');
+  };
+
+  const handleRemoveUrl = (url: string) => {
+    setUrlItems(prev => prev.filter(item => item.url !== url));
+  };
+
+  const handleClearUrls = () => {
+    setUrlItems([]);
+  };
+
   const handleLoadSample = () => {
     const sampleText = sampleNews.map((n, i) => `【新闻${i + 1}】${n.title}\n${n.content}`).join('\n\n');
     setInputText(sampleText);
     setParseMode('batch');
+    setActiveTab('text');
     message.success('已加载示例数据');
   };
 
   const handleClear = () => {
-    setInputText('');
+    if (activeTab === 'text') {
+      setInputText('');
+    } else {
+      setUrlItems([]);
+      setUrlInput('');
+    }
   };
 
   const handlePaste = async () => {
     try {
       const text = await navigator.clipboard.readText();
-      setInputText(text);
+
+      if (activeTab === 'text') {
+        setInputText(text);
+      } else {
+        const lines = text.split(/[\n,]+/).filter(line => isValidUrl(line.trim()));
+        if (lines.length > 0) {
+          setUrlInput(lines.map(l => l.trim()).join('\n'));
+        } else {
+          setUrlInput(text);
+        }
+      }
       message.success('已粘贴剪贴板内容');
     } catch {
       message.warning('无法访问剪贴板，请手动粘贴');
     }
   };
 
-  return (
-    <div className="input-panel">
-      <div className="panel-header">
-        <h2>
-          <FileTextOutlined />
-          新闻输入
-        </h2>
-        <div className="mode-switcher">
-          <Space size="small">
-            <Tag.CheckableTag
-              checked={parseMode === 'batch'}
-              onChange={() => setParseMode('batch')}
-            >
-              <AppstoreOutlined /> 批量模式
-            </Tag.CheckableTag>
-            <Tag.CheckableTag
-              checked={parseMode === 'single'}
-              onChange={() => setParseMode('single')}
-            >
-              <FileAddOutlined /> 单篇模式
-            </Tag.CheckableTag>
-          </Space>
-        </div>
+  const textTabContent = (
+    <div className="text-tab-content">
+      <div className="mode-switcher">
+        <Space size="small">
+          <Tag.CheckableTag
+            checked={parseMode === 'batch'}
+            onChange={() => setParseMode('batch')}
+          >
+            <AppstoreOutlined /> 批量模式
+          </Tag.CheckableTag>
+          <Tag.CheckableTag
+            checked={parseMode === 'single'}
+            onChange={() => setParseMode('single')}
+          >
+            <FileAddOutlined /> 单篇模式
+          </Tag.CheckableTag>
+        </Space>
       </div>
 
       <div className="input-tips">
@@ -176,7 +297,7 @@ const InputPanel: React.FC<InputPanelProps> = ({ onAnalyze, isAnalyzing, newsCou
             ? '在此粘贴多条财经新闻，用空行分隔每条新闻...\n\n支持批量粘贴，系统会自动识别分段。'
             : '在此粘贴财经新闻文本...'
         }
-        autoSize={{ minRows: 15, maxRows: 25 }}
+        autoSize={{ minRows: 12, maxRows: 20 }}
         className="news-textarea"
       />
 
@@ -188,7 +309,7 @@ const InputPanel: React.FC<InputPanelProps> = ({ onAnalyze, isAnalyzing, newsCou
             type="primary"
             size="large"
             icon={<ThunderboltOutlined />}
-            onClick={handleAnalyze}
+            onClick={handleAnalyzeText}
             loading={isAnalyzing}
             disabled={!inputText.trim()}
             className="analyze-btn"
@@ -206,6 +327,178 @@ const InputPanel: React.FC<InputPanelProps> = ({ onAnalyze, isAnalyzing, newsCou
           </Button>
         </Space>
       </div>
+    </div>
+  );
+
+  const urlTabContent = (
+    <div className="url-tab-content">
+      <Alert
+        type="info"
+        showIcon
+        message="关于链接抓取"
+        description="由于浏览器安全限制，部分网站可能无法直接抓取内容。如遇抓取失败，请手动复制新闻正文粘贴到文本模式中。"
+        style={{ marginBottom: 16 }}
+      />
+
+      <div className="url-input-section">
+        <Space.Compact style={{ width: '100%' }}>
+          <TextArea
+            value={urlInput}
+            onChange={(e) => setUrlInput(e.target.value)}
+            placeholder="输入新闻链接，多个链接用换行或逗号分隔..."
+            autoSize={{ minRows: 3, maxRows: 6 }}
+            onPressEnter={(e) => {
+              if (e.shiftKey) return;
+              e.preventDefault();
+              handleAddUrl();
+            }}
+          />
+        </Space.Compact>
+        <Button
+          type="primary"
+          icon={<LinkOutlined />}
+          onClick={handleAddUrl}
+          loading={isFetching}
+          style={{ marginTop: 12 }}
+          disabled={!urlInput.trim()}
+          block
+        >
+          添加链接并抓取
+        </Button>
+      </div>
+
+      {urlItems.length > 0 && (
+        <div className="url-list-section">
+          <div className="url-list-header">
+            <span>已添加 {urlItems.length} 条链接</span>
+            <Button
+              type="text"
+              size="small"
+              icon={<DeleteOutlined />}
+              onClick={handleClearUrls}
+            >
+              清空
+            </Button>
+          </div>
+          <List
+            size="small"
+            dataSource={urlItems}
+            renderItem={(item) => (
+              <List.Item
+                className="url-list-item"
+                actions={[
+                  <Button
+                    key="delete"
+                    type="text"
+                    size="small"
+                    danger
+                    icon={<CloseOutlined />}
+                    onClick={() => handleRemoveUrl(item.url)}
+                  />
+                ]}
+              >
+                <List.Item.Meta
+                  avatar={
+                    item.status === 'loading' ? (
+                      <LoadingOutlined style={{ color: '#3b82f6' }} />
+                    ) : item.status === 'success' ? (
+                      <CheckOutlined style={{ color: '#10b981' }} />
+                    ) : item.status === 'error' ? (
+                      <CloseOutlined style={{ color: '#ef4444' }} />
+                    ) : (
+                      <LinkOutlined style={{ color: '#64748b' }} />
+                    )
+                  }
+                  title={
+                    <span className="url-item-title">
+                      {item.result?.title || item.url}
+                    </span>
+                  }
+                  description={
+                    <span className="url-item-desc">
+                      {item.status === 'success'
+                        ? `${item.result?.content?.length || 0} 字`
+                        : item.status === 'error'
+                        ? item.error
+                        : item.status === 'loading'
+                        ? '正在获取...'
+                        : item.url}
+                    </span>
+                  }
+                />
+              </List.Item>
+            )}
+          />
+        </div>
+      )}
+
+      <Divider className="panel-divider" />
+
+      <div className="panel-actions">
+        <Space wrap>
+          <Button
+            type="primary"
+            size="large"
+            icon={<ThunderboltOutlined />}
+            onClick={handleAnalyzeUrl}
+            loading={isAnalyzing || isFetching}
+            disabled={urlItems.filter(i => i.status === 'success').length === 0}
+            className="analyze-btn"
+          >
+            {isAnalyzing
+              ? '分析中...'
+              : `开始分析 (${urlItems.filter(i => i.status === 'success').length}条)`}
+          </Button>
+          <Button onClick={handlePaste} disabled={isAnalyzing || isFetching}>
+            粘贴链接
+          </Button>
+          <Button onClick={handleLoadSample} disabled={isAnalyzing}>
+            加载示例
+          </Button>
+        </Space>
+      </div>
+    </div>
+  );
+
+  const tabItems = [
+    {
+      key: 'text',
+      label: (
+        <span>
+          <FileTextOutlined />
+          文本输入
+        </span>
+      ),
+      children: textTabContent
+    },
+    {
+      key: 'url',
+      label: (
+        <span>
+          <LinkOutlined />
+          链接输入
+        </span>
+      ),
+      children: urlTabContent
+    }
+  ];
+
+  return (
+    <div className="input-panel">
+      <div className="panel-header">
+        <h2>
+          <FileTextOutlined />
+          新闻输入
+        </h2>
+      </div>
+
+      <Tabs
+        activeKey={activeTab}
+        onChange={(key) => setActiveTab(key as 'text' | 'url')}
+        items={tabItems}
+        size="small"
+        className="input-tabs"
+      />
 
       {newsCount > 0 && (
         <div className="news-count-info">
